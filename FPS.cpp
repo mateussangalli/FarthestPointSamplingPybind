@@ -58,6 +58,7 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> distance_matrix, int
         max = 0.f;
         max_ind = -1;
         for (int idx_rmng = 0; idx_rmng < n_rmng; idx_rmng++) {
+            // update distances array
             if (ptr_in[N * remaining_points[idx_rmng] + last_ind] < remaining_dists[idx_rmng]) {
                 remaining_dists[idx_rmng] = ptr_in[N * idx_rmng + last_ind];
             }
