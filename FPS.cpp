@@ -75,11 +75,11 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
     float max_dist = 0.;
     float dist;
     // fursthest served point from the first point
-    ServedPoint *p0;
+    ServedPoint* p0 = new ServedPoint();
     // initialize vector of served points by the first point
     for (int idx = 0; idx < N; idx++) {
         dist = sqr_eucl_distance(ptr_in + first_point * d, ptr_in + idx * d, d);  
-        ServedPoint* point = (ServedPoint*)malloc(sizeof(ServedPoint));
+        ServedPoint* point = new ServedPoint();
         point->distance = dist;
         point->index = idx;
         point->parent = &centers[0];
@@ -126,6 +126,8 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
             else it_friends++;
         }
 
+
+
         // update served points
         it_friends = c_old->friends.begin();
         while (it_friends != c_old->friends.end()) {
@@ -143,6 +145,8 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
             }
             it_friends++;
         }
+
+
         // add friends
         it_friends = c_old->friends.begin();
         while (it_friends != c_old->friends.end()) {
@@ -153,6 +157,8 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
             }
             it_friends++;
         }
+
+
 
         max_dist = 0.;
         for (it_sp = c_old->served_points.begin(); it_sp != c_old->served_points.end(); it_sp++) {
@@ -172,12 +178,13 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
         furthest_served_points.push(p2);
     }
     for (int idx=0; idx < n_points; idx++) {
-        // free(centers[idx]);
         for (it_sp=centers[idx].served_points.begin(); it_sp != centers[idx].served_points.end(); it_sp++) {
-            free(*it_sp);
+            delete *it_sp;
         }
+        // for (it_friends=centers[idx].friends.begin(); it_friends != centers[idx].friends.end(); it_friends++) {
+        //     delete *it_friends;
+        // }
     }
-
     return indices;
 }
 
