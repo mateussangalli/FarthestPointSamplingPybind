@@ -120,7 +120,6 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
         while (it_friends != c_old->friends.end()) {
             dist_centers_old = sqr_eucl_distance(ptr_in + (d * c_old->index), ptr_in + (d * ((*it_friends)->index)), d);
             if (dist_centers_old > 64 * r) {
-                // it_friends->friends.erase(&c_old);
                 c_old->friends.erase(it_friends++);
             }
             else it_friends++;
@@ -134,7 +133,7 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
             it_sp = (*it_friends)->served_points.begin();
             while(it_sp != (*it_friends)->served_points.end()) {
                 dist_new = sqr_eucl_distance(ptr_in + (d * p.index), ptr_in + (d * ((*it_sp)->index)), d);
-                if (dist_new < (*it_sp)->distance) {
+                if (dist_new <= (*it_sp)->distance) {
                     (*it_sp)->distance = dist_new;
                     (*it_sp)->parent = &centers[idx];
                     centers[idx].served_points.push_back(*it_sp);
@@ -159,7 +158,6 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
         }
 
 
-
         max_dist = 0.;
         for (it_sp = c_old->served_points.begin(); it_sp != c_old->served_points.end(); it_sp++) {
             if ((*it_sp) -> distance > max_dist){
@@ -181,11 +179,16 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
         for (it_sp=centers[idx].served_points.begin(); it_sp != centers[idx].served_points.end(); it_sp++) {
             delete *it_sp;
         }
-        // for (it_friends=centers[idx].friends.begin(); it_friends != centers[idx].friends.end(); it_friends++) {
-        //     delete *it_friends;
-        // }
+        centers[idx].served_points.clear();
+        centers[idx].friends.clear();
     }
+    centers.clear();
     return indices;
+    delete c_old;
+    while (!furthest_served_points.empty()) {
+        furthest_served_points.pop();
+    }
+
 }
 
 PYBIND11_MODULE(FPS, m) {
