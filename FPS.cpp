@@ -11,7 +11,7 @@ struct Center;
 struct ServedPoint {
     float distance;
     int index;
-    Center *parent;
+    int parent;
 };
 
 struct CompareDistance {
@@ -20,12 +20,19 @@ struct CompareDistance {
     }
 };
 
+ServedPoint find_max_served_point(std::vector<ServedPoint> points, std::list<int> indices) {
+    float max_dist = -1.;
+    std::list<int>::iterator it_sp;
+    ServedPoint p;
+    for (it_sp = indices.begin(); it_sp != indices.end(); it_sp++) {
+        if (points[*it_sp].distance > max_dist){
+            p = points[*it_sp];
+            max_dist = points[*it_sp].distance;
+        }
+    }
+    return p;
 
-struct Center {
-    int index;
-    std::list<Center*> friends;
-    std::list<ServedPoint*> served_points;
-};
+}
 
 
 float sqr_eucl_distance(float *a, float *b, int d) {
@@ -36,8 +43,8 @@ float sqr_eucl_distance(float *a, float *b, int d) {
     return out;
 }
 
-py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points, int first_point) {
-    py::buffer_info buf = points.request();
+py::array_t<int> farthest_point_sampling(py::array_t<float> input_points, int n_points, int first_point) {
+    py::buffer_info buf = input_points.request();
 
     if (buf.ndim != 2)
         throw std::runtime_error("Number of dimensions must be two");
@@ -58,86 +65,82 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
     int *ptr_out = static_cast<int *>(buf_out.ptr);
     ptr_out[0] = first_point;
 
-    // initialize centers
-    std::vector<Center> centers(n_points);
-    for (int idx=0; idx < n_points; idx++) {
-        //Center *temp = (Center*)malloc(sizeof(Center));
-        Center c0;
-        std::list<ServedPoint*> temp1;
-        std::list<Center*> temp2;
-        c0.served_points = temp1;
-        c0.friends = temp2;
-        centers[idx] = c0;
-    }
-    centers[0].index = first_point;
-    centers[0].friends.push_back(&centers[0]);
+    // indexes of center points
+    std::vector<int> centers(n_points);
+    centers[0] = first_point;
+
+    std::vector<ServedPoint> all_points(N);
+    std::vector<std::list<int>> friends(n_points, std::list<int>(0));
+    std::vector<std::list<int>> served_points(n_points, std::list<int>(0));
+
+    friends[0].push_back(0);
 
     float max_dist = 0.;
+    int max_ind = -1;
     float dist;
-    // fursthest served point from the first point
-    ServedPoint* p0 = new ServedPoint();
     // initialize vector of served points by the first point
     for (int idx = 0; idx < N; idx++) {
         dist = sqr_eucl_distance(ptr_in + first_point * d, ptr_in + idx * d, d);  
-        ServedPoint* point = new ServedPoint();
-        point->distance = dist;
-        point->index = idx;
-        point->parent = &centers[0];
+        ServedPoint point = {dist, idx, 0};
+        all_points[idx] = point;
+        served_points[0].push_back(idx);
         if (dist > max_dist) {
-            p0 = point;
             max_dist = dist;
+            max_ind = idx;
         }
-        centers[0].served_points.push_back(point);
     }
     std::priority_queue<ServedPoint, std::vector<ServedPoint>, CompareDistance> furthest_served_points;
-    furthest_served_points.push(*p0);
+    ServedPoint p0 = {max_dist, max_ind, 0};
+    furthest_served_points.push(p0);
 
 
     float r = 999999.;
 
-    std::list<Center*>::iterator it_friends;
-    std::list<ServedPoint*>::iterator it_sp;
+    std::list<int>::iterator it_friends;
+    std::list<int>::iterator it_sp;
     float dist_new;
     float dist_centers_old;
     float dist_centers_new;
-    ServedPoint p, p1, p2;
-    Center *c_old;
+    ServedPoint p;
+    int c_old;
     for (int idx = 1; idx < n_points; idx ++) {
-        // find next center points
         p = furthest_served_points.top();
+
+        while (p.parent != all_points[p.index].parent) {
+            furthest_served_points.pop();
+            furthest_served_points.push(find_max_served_point(all_points, served_points[p.parent]));
+            p = furthest_served_points.top();
+        }
         furthest_served_points.pop();
         ptr_out[idx] = p.index;
         r = p.distance;
 
         c_old = p.parent;
 
-
-        centers[idx].index = p.index;
-        centers[idx].friends.push_back(&centers[idx]);
+        centers[idx] = p.index;
+        friends[idx].push_back(idx);
 
         // delete friends
-        it_friends = c_old->friends.begin();
-        while (it_friends != c_old->friends.end()) {
-            dist_centers_old = sqr_eucl_distance(ptr_in + (d * c_old->index), ptr_in + (d * ((*it_friends)->index)), d);
+        it_friends = friends[c_old].begin();
+        while (it_friends != friends[c_old].end()) {
+            dist_centers_old = sqr_eucl_distance(ptr_in + (d * centers[c_old]), ptr_in + (d * centers[*it_friends]), d);
             if (dist_centers_old > 64 * r) {
-                c_old->friends.erase(it_friends++);
+                friends[c_old].erase(it_friends++);
             }
             else it_friends++;
         }
 
-
-
         // update served points
-        it_friends = c_old->friends.begin();
-        while (it_friends != c_old->friends.end()) {
-            it_sp = (*it_friends)->served_points.begin();
-            while(it_sp != (*it_friends)->served_points.end()) {
-                dist_new = sqr_eucl_distance(ptr_in + (d * p.index), ptr_in + (d * ((*it_sp)->index)), d);
-                if (dist_new <= (*it_sp)->distance) {
-                    (*it_sp)->distance = dist_new;
-                    (*it_sp)->parent = &centers[idx];
-                    centers[idx].served_points.push_back(*it_sp);
-                    (*it_friends)->served_points.erase(it_sp++);
+        it_friends = friends[c_old].begin();
+        while (it_friends != friends[c_old].end()) {
+            it_sp = served_points[*it_friends].begin();
+            while(it_sp != served_points[*it_friends].end()) {
+                dist_new = sqr_eucl_distance(ptr_in + (d * p.index), ptr_in + (d * (all_points[*it_sp].index)), d);
+                if (dist_new <= all_points[*it_sp].distance) {
+                    all_points[*it_sp].distance = dist_new;
+                    all_points[*it_sp].parent = idx;
+                    served_points[idx].push_back(*it_sp);
+                    served_points[*it_friends].erase(it_sp++);
                 }else {
                     it_sp++;
                 }
@@ -145,49 +148,26 @@ py::array_t<int> farthest_point_sampling(py::array_t<float> points, int n_points
             it_friends++;
         }
 
-
         // add friends
-        it_friends = c_old->friends.begin();
-        while (it_friends != c_old->friends.end()) {
-            dist_centers_new = sqr_eucl_distance(ptr_in + (d * p.index), ptr_in + (d * ((*it_friends)->index)), d);
+        it_friends = friends[c_old].begin();
+        while (it_friends != friends[c_old].end()) {
+            dist_centers_new = sqr_eucl_distance(ptr_in + (d * p.index), ptr_in + (d * (centers[*it_friends])), d);
             if (dist_centers_new < 16 * r) {
-                centers[idx].friends.push_back(*it_friends);
-                (*it_friends)->friends.push_back(&centers[idx]);
+                friends[idx].push_back(*it_friends);
+                friends[*it_friends].push_back(idx);
             }
             it_friends++;
         }
 
-
-        max_dist = 0.;
-        for (it_sp = c_old->served_points.begin(); it_sp != c_old->served_points.end(); it_sp++) {
-            if ((*it_sp) -> distance > max_dist){
-                p1 = **it_sp;
-                max_dist = (*it_sp) -> distance;
-            }
-        }
-        max_dist = 0.;
-        for (it_sp = centers[idx].served_points.begin(); it_sp != centers[idx].served_points.end(); it_sp++) {
-            if ((*it_sp) -> distance > max_dist){
-                p2 = **it_sp;
-                max_dist = (*it_sp) -> distance;
-            }
-        }
-        furthest_served_points.push(p1);
-        furthest_served_points.push(p2);
+        furthest_served_points.push(find_max_served_point(all_points, served_points[c_old]));
+        furthest_served_points.push(find_max_served_point(all_points, served_points[idx]));
     }
-    for (int idx=0; idx < n_points; idx++) {
-        for (it_sp=centers[idx].served_points.begin(); it_sp != centers[idx].served_points.end(); it_sp++) {
-            delete *it_sp;
-        }
-        centers[idx].served_points.clear();
-        centers[idx].friends.clear();
-    }
-    centers.clear();
-    return indices;
-    delete c_old;
     while (!furthest_served_points.empty()) {
         furthest_served_points.pop();
     }
+    all_points.clear();
+    centers.clear();
+    return indices;
 
 }
 
